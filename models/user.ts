@@ -1,14 +1,19 @@
-import mongoose, { Schema, Document, Model } from 'mongoose'
+import mongoose, { Schema, Document } from 'mongoose'
 
-//Interface for User Document
+interface IProfilePic {
+  id: string
+  url: string
+}
+
+// Interface for User Document
 export interface IUser extends Document {
     fullname?: string
     email?: string
     phoneNo?: string
     password?: string
-    role: string
+    role: 'farmer' | 'buyer'
     location: string
-    profilePic?: string
+    profilePic?: IProfilePic
     createdAt: Date
     updatedAt: Date
 }
@@ -25,7 +30,7 @@ const userSchema: Schema<IUser> = new Schema({
         id: String,
         url: String
     }
-}, { timestamps: true, collections: 'users'})
+}, { timestamps: true, collection: 'users' })
 
-const User: Model<IUser> = mongoose.model<IUser>('User', userSchema)
+const User = mongoose.model<IUser>('User', userSchema)
 export default User
