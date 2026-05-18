@@ -6,16 +6,34 @@ import jwt from 'jsonwebtoken'
 import User, { IUser } from '../models/user'
 
 import token from '../middleware/token'
+import { sendVerificationEmail, sendPasswordReset } from '../services/nodemailer'
 
 
 // ======================== TYPES ========================
-type RegisterBody = {
+type RegisterBuyerBody = {
     fullname: string
     email: string
     phoneNo: string
     password: string
-    location: string
-    role: 'farmer' | 'buyer'
+    location: {
+        address: string
+        state: string
+        lga: string
+    }
+}
+
+type RegisterFarmerBody = {
+    fullname: string
+    email: string
+    phoneNo: string
+    password: string
+    location: {
+        address: string
+        state: string
+        lga: string
+    }
+    farmName: string
+    produceCategories: string[]
 }
 
 type LoginBody = {
@@ -40,17 +58,12 @@ type ResetPasswordBody = {
 }
 
 
-// create account
-router.post('/register', async (req: Request, res: Response) => {
-    const { fullname, email, phoneNo, password, location, role } = req.body as RegisterBody
+// create buyer account
+router.post('/register-buyer', async (req: Request, res: Response) => {
+    const { fullname, email, phoneNo, password, location } = req.body as RegisterBuyerBody
 
-    if (!fullname || !email || !phoneNo || !password || !location || !role)
+    if (!fullname || !email || !phoneNo || !password || !location)
         return res.status(400).send({ status: 'error', msg: 'All fields must be filled' })
-
-    // Role safety check
-    if (!['farmer', 'buyer'].includes(role)) {
-        return res.status(400).send({ status: 'error', msg: 'Invalid role' })
-    }
 
     // Start try block
     try {
@@ -70,35 +83,91 @@ router.post('/register', async (req: Request, res: Response) => {
         user.phoneNo = phoneNo
         user.password = hashedpassword
         user.location = location
-        user.role = role
+        user.role = 'buyer'
 
         await user.save()
 
-        const safeUser = {
-            _id: user._id,
-            fullname: user.fullname,
-            email: user.email,
-            phoneNo: user.phoneNo,
-            location: user.location,
-            role: user.role
+        
+        // Generate verification link (expires in 30 minutes))
+        const secret = process.env.jwt_secret
+        if (!secret) {
+            return res.status(500).send({ status: 'error', msg: 'JWT secret not configured '})
         }
 
-        /*
-        // Generate verification token (optional if you want email/phone verification (expires in 30 minutes))
         const verificationToken = jwt.sign(
-            { userId: user._id, email: user.email, phone_no: user.phone_no },
-            process.env.JWT_SECRET,
+            { _id: user._id }, secret,
             { expiresIn: "30m" }
         )
+
+        const verificationLink = `${process.env.BASE_URL}/auth/verify/${verificationToken}`
         
-        // Optionallly, send OTP/email verification only if email is provided
-        if (email) {
-            await sendOTP(email, fullname, verificationToken)
+        // send email verification
+        await sendVerificationEmail(user.email, user.fullname, user.role, verificationLink)
+
+        return res.status(201).send({
+            status: "ok", msg: "Account created. Please check your email to verify your account."
+        })
+
+    } catch (error: any) {
+        if (error.name == "JsonWebTokenError")
+            return res.status(400).send({ status: 'error', msg: 'Invalid token' })
+
+        return res.status(500).send({ status: 'error', msg: 'An error occured.', error })
+    }
+})
+
+
+// create farmer account
+router.post('/register-farmer', async (req: Request, res: Response) => {
+    const { 
+        fullname, email, phoneNo, password, location, farmName, produceCategories
+    } = req.body as RegisterFarmerBody
+
+    if (!fullname || !email || !phoneNo || !password || !location || !farmName || !produceCategories)
+        return res.status(400).send({ status: 'error', msg: 'All fields must be filled' })
+
+    // Start try block
+    try {
+        //Check if user already exists
+        const check = await User.findOne({ email })
+        if (check) {
+            return res.status(409).send({ status: 'ok', msg: 'An account with this email already exists' })
         }
-*/
-        return res.status(200).send({
-            status: "ok", msg: "success"
-            /*msg: "Account created! Check your email to verify your account."*/, user: safeUser
+
+        //Hash password
+        const hashedpassword = await bcrypt.hash(password, 10)
+
+        //Create new user
+        const user = new User()
+        user.fullname = fullname
+        user.email = email
+        user.phoneNo = phoneNo
+        user.password = hashedpassword
+        user.location = location
+        user.farmName = farmName
+        user.produceCategories = produceCategories
+        user.role = 'farmer'
+
+        await user.save()
+
+        // Generate verification link (expires in 30 minutes))
+        const secret = process.env.jwt_secret
+        if (!secret) {
+            return res.status(500).send({ status: 'error', msg: 'JWT secret not configured '})
+        }
+
+        const verificationToken = jwt.sign(
+            { _id: user._id }, secret,
+            { expiresIn: "30m" }
+        )
+
+        const verificationLink = `${process.env.BASE_URL}/auth/verify/${verificationToken}`
+        
+        // send email verification
+        await sendVerificationEmail(user.email, user.fullname, user.role, verificationLink)
+        
+        return res.status(201).send({
+            status: "ok", msg: "Account created. Please check your email to verify your account."
         })
 
     } catch (error: any) {
@@ -110,36 +179,35 @@ router.post('/register', async (req: Request, res: Response) => {
 })
 
 // endpoint to verify account
-/*
-router.get("/verify/:token", async (req, res) => {
-    const { token } = req.params
-
+router.get('/verify/:token', async (req, res) => {
     try {
-        const user = jwt.verify(token, process.env.JWT_SECRET)
-        
-        const Vuser = await User.findById({_id: user._id})
-        if (!Vuser)
-            return res.status(400).send({ status: "error", msg: "User not found" })
-        
-        if (Vuser.is_verified)
-            return res.status(200).send({ status: "ok", msg: "Account already verified" })
-        Vuser.is_verified = true
-        await Vuser.save()
-        
-        return res.status(200).send({ status: "ok", msg: "Account successfully verified" })
-        
+        const decoded: any = jwt.verify(
+            req.params.token,
+            process.env.jwt_secret as string
+        )
+
+        const user = await User.findById(decoded._id)
+        if (!user) {
+            return res.status(404).send('User not found')
+        }
+
+        user.isVerified = true
+        await user.save()
+
+        const authToken = jwt.sign(
+            { _id: user._id, role: user.role },
+            process.env.jwt_secret as string,
+            { expiresIn: '1d' }
+        )
+
+        return res.redirect(
+            `${process.env.FRONTEND_URL}/auth/success?token=${authToken}`
+        )
+
     } catch (error) {
-        if (error.name === "TokenExpiredError")
-            return res.status(400).send({ status: "error", msg: "Verification link expired" })
-            
-        if (error.name === "JsonWebTokenError")
-            return res.status(400).send({ status: "error", msg: "Invalid verification token" })
-            
-        console.error(error)
-        return res.status(500).send({ status: "error", msg: "Verification failed" })
+        return res.status(400).send('Invalid or expired verification link')
     }
 })
-*/
 
 //endpoint to Login
 router.post('/login', async (req: Request, res: Response) => {
@@ -156,10 +224,9 @@ router.post('/login', async (req: Request, res: Response) => {
             })
 
         // check if user's account has been verified
-        /*
-        if (user.is_verified) {
-            return res.status(400).send({ status: "error", msg: "Please verify your account first." })
-        }*/
+        if (!user.isVerified) {
+            return res.status(403).send({ status: "error", msg: "Please verify your account first." })
+        }
 
         // // check if blocked
         // if (user.is_blocked === true) {
@@ -216,7 +283,7 @@ router.post('/logout', token, async (req: Request, res: Response) => {
         const userId = (req as any).user._id
 
         // Set user offline
-        await User.findByIdAndUpdate(userId, { is_online: false })
+        //await User.findByIdAndUpdate(userId, { is_online: false })
 
         return res.status(200).send({ status: 'ok', msg: 'success' })
 
@@ -299,8 +366,9 @@ router.post('/forgot_password', async (req: Request, res: Response) => {
         // Create reset token (expires in 10 min)
         const resetToken = jwt.sign({ _id: user._id }, secret, { expiresIn: '10m' });
 
-        // Send email (or SMS later if implemented)
-        //await sendPasswordReset(user.email, user.firstname, resetToken)
+        // Send email
+        const resetLink = `${process.env.BASE_URL}/auth/reset_password/${resetToken}`
+        await sendPasswordReset(user.email, user.fullname, resetLink)
 
         return res.status(200).send({ status: 'ok', msg: 'Password reset link sent. Please check your email or phone.' })
 

@@ -1,19 +1,31 @@
 import mongoose, { Schema, Document } from 'mongoose'
 
+// Interface for Profile Photo Document
 interface IProfilePic {
   id: string
   url: string
 }
 
+// Interface for Location Document
+interface ILocation {
+    address: string
+    state: string
+    lga: string
+}
+
 // Interface for User Document
 export interface IUser extends Document {
-    fullname?: string
-    email?: string
-    phoneNo?: string
-    password?: string
+    fullname: string
+    email: string
+    phoneNo: string
+    password: string
     role: 'farmer' | 'buyer'
-    location: string
+    location: ILocation
+    farmName?: string
+    produceCategories?: string[]
     profilePic?: IProfilePic
+    isVerified: boolean
+    isActive: boolean
     createdAt: Date
     updatedAt: Date
 }
@@ -25,11 +37,18 @@ const userSchema: Schema<IUser> = new Schema({
     phoneNo: String,
     password: String,
     role: { type: String, enum: ['farmer', 'buyer'] },
-    location: String,
+    location: { address: String, state: String, lga: String },
+    farmName: String,
+    produceCategories: [{
+        type: String,
+        enum: ['vegetables', 'fruits', 'grains', 'tubers', 'livestock', 'poultry', 'dairy', 'spices']
+    }],
     profilePic: {
         id: String,
         url: String
-    }
+    },
+    isVerified: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true }
 }, { timestamps: true, collection: 'users' })
 
 const User = mongoose.model<IUser>('User', userSchema)
