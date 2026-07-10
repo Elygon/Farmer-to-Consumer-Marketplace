@@ -1,2 +1,5 @@
 node_modules
 .env
+preview-reset.html
+preview-verify.html
+preview-reset-form.html

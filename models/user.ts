@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose'
+import { PRODUCE_CATEGORIES, ProduceCategory } from '../constants/user'
 
 // Interface for Profile Photo Document
 interface IProfilePic {
@@ -22,7 +23,7 @@ export interface IUser extends Document {
     role: 'farmer' | 'buyer'
     location: ILocation
     farmName?: string
-    produceCategories?: string[]
+    produceCategories?: ProduceCategory[]
     profilePic?: IProfilePic
     isVerified: boolean
     isActive: boolean
@@ -41,7 +42,7 @@ const userSchema: Schema<IUser> = new Schema({
     farmName: String,
     produceCategories: [{
         type: String,
-        enum: ['vegetables', 'fruits', 'grains', 'tubers', 'livestock', 'poultry', 'dairy', 'spices']
+        enum: PRODUCE_CATEGORIES
     }],
     profilePic: {
         id: String,

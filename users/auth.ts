@@ -4,9 +4,11 @@ const router = express.Router()
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import User, { IUser } from '../models/user'
+import { ProduceCategory } from '../constants/user'
 
 import token from '../middleware/token'
 import { sendVerificationEmail, sendPasswordReset } from '../services/nodemailer'
+import { BRAND } from '../services/emailTemplate'
 
 
 // ======================== TYPES ========================
@@ -33,7 +35,7 @@ type RegisterFarmerBody = {
         lga: string
     }
     farmName: string
-    produceCategories: string[]
+    produceCategories: ProduceCategory[]
 }
 
 type LoginBody = {
@@ -98,6 +100,10 @@ router.post('/register-buyer', async (req: Request, res: Response) => {
             { _id: user._id }, secret,
             { expiresIn: "30m" }
         )
+
+        // console.log("\n--- TESTING INFO ---");
+        // console.log("Verification Token:", verificationToken);
+        // console.log("--------------------\n");
 
         const verificationLink = `${process.env.BASE_URL}/auth/verify/${verificationToken}`
         
@@ -200,9 +206,105 @@ router.get('/verify/:token', async (req, res) => {
             { expiresIn: '1d' }
         )
 
-        return res.redirect(
-            `${process.env.FRONTEND_URL}/auth/success?token=${authToken}`
-        )
+        // This will take effect when there's frontend url
+        // return res.redirect(
+        //     `${process.env.FRONTEND_URL}/auth/success?token=${authToken}`
+        // )
+
+        // Temporary response since there is no frontend yet
+        return res.status(200).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>Account Verified</title>
+            </head>
+
+            <body style="
+                margin:0;
+                padding:0;
+                font-family:Arial, sans-serif;
+                background:#F4F5FF;
+                display:flex;
+                justify-content:center;
+                align-items:center;
+                height:100vh;
+            ">
+
+            <div style="
+                width:100%;
+                max-width:480px;
+                background:#FFFFFF;
+                border:1px solid #E8E8F0;
+                border-radius:18px;
+                padding:40px;
+                text-align:center;
+                box-shadow:0 10px 30px rgba(0,0,0,0.08);
+            ">
+
+                <!-- Success Icon -->
+                <div style="
+                    width:80px;
+                    height:80px;
+                    background:#1aa803;
+                    border-radius:50%;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    margin:0 auto 20px auto;
+                ">
+                    <span style="color:white;font-size:40px;">✓</span>
+                </div>
+
+                <!-- Title -->
+                <h1 style="
+                    color:#1aa803;
+                    margin-bottom:10px;
+                    font-size:26px;
+                ">
+                    Account Verified Successfully
+                </h1>
+
+                <!-- Message -->
+                <p style="
+                    color:#666666;
+                    font-size:16px;
+                    line-height:1.6;
+                    margin-bottom:30px;
+                ">
+                    Your email has been verified successfully.<br/>
+                    You can now log in to your account and start exploring Farm Connect.
+                </p>
+
+                <!-- Button -->
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" style="
+                    display:inline-block;
+                    padding:14px 28px;
+                    background:#1aa803;
+                    color:#ffffff;
+                    text-decoration:none;
+                    border-radius:10px;
+                    font-weight:bold;
+                    font-size:15px;
+                ">
+                    Go to Login
+                </a>
+
+                <!-- Footer note -->
+                <p style="
+                    margin-top:25px;
+                    font-size:13px;
+                    color:#888888;
+                ">
+                    Farm Connect
+               </p>
+ 
+            </div>
+
+            </body>
+            </html>
+        `)
 
     } catch (error) {
         return res.status(400).send('Invalid or expired verification link')
@@ -386,96 +488,160 @@ router.get("/reset_password/:resetPasswordCode",
         try {
             const data: any = jwt.verify(resetPasswordCode, process.env.jwt_secret as  string)
 
-            return res.send(`<!DOCTYPE html>
+            return res.send(`
+                <!DOCTYPE html>
                 <html>
-                <head>\
-                    <title>Forgot Password</title>
-                    <meta name="viewport" content="width=device-width, initial-scale=1">    
-                    <style>
-                        body {
-                            font-family: Arial, Helvetica, sans-serif;
-                            margin-top: 10%;
-                        }
-                        form{
-                            width: 50%;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            margin-left: 26%;
-                            margin-top: 0%;
-                        }
-                        @media screen and (max-width: 900px) {
-                            form{
-                                width: 50%;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                            }
-                        }
-                        input[type=text]
-                        {
-                            width: 100%;
-                            padding: 12px 20px;
-                            margin: 8px 0;
-                            display: inline-block;
-                            border: 1px solid #ccc;
-                            box-sizing: border-box;
-                        }
-  
-                        button {
-                            background-color: #04AA6D;
-                            color: white;
-                            padding: 14px 20px;
-                            margin: 8px 0;
-                            border: none;
-                            cursor: pointer;
-                            width: 100%;
-                        }
-  
-                        button:hover {
-                            opacity: 0.8
-                        }   
-  
-                        .container {
-                            padding: 16px;
-                        }
-  
-                        span.psw {
-                            float: right;
-                            padding-top: 16px;
-                        }
-  
-                        /* Change styles for span and cancel button on extra small screens */
-                        @media screen and (max-width: 300px) {
-                            span.psw {
-                                display: block;
-                                float: none;
-                            }
-  
-                            .cancelbtn {
-                                width: 100%;
-                            }
-                        }
-                    </style>
+                <head>
+                    <title>Reset Password</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
                 </head>
-                <body>    
-                    <h2 style="display: flex; align-items: center; justify-content: center; margin-bottom: 0;">Recover Account</h2>
-                    <h6 style="display: flex; align-items: center; justify-content: center; font-weight: 200;">Enter the new password
-                        you want to use in recovering your account
-                    </h6>    
-          
-                    <form action="http://localhost:1000/auth/reset_password" method="post">
-                        <div class="imgcontainer"> </div>
-                        <div class="container">
-                            <input type="password" placeholder="Enter new password" name="new_password" required style="border-radius: 5px" minlength="11">
-                            <input type="password" placeholder="Confirm new password" name="confirm_password" required style="border-radius: 5px" minlength="11">
-                            <input type="hidden" name="resetPasswordCode" value="${resetPasswordCode}"><br>
-                            <button type="submit" style="border-radius: 5px; background-color: #1aa803">Submit</button>
-                        </div>
+
+                <body style="
+                    margin:0;
+                    font-family:Arial;
+                    background:${BRAND.secondary};
+                    display:flex;
+                    justify-content:center;
+                    align-items:center;
+                    height:100vh;
+                ">
+
+                <div style="
+                    width:100%;
+                    max-width:420px;
+                    background:${BRAND.white};
+                    padding:30px;
+                    border-radius:14px;
+                    border:1px solid ${BRAND.border};
+                ">
+
+                    <h2 style="color:${BRAND.primary}; text-align:center;">
+                        Recover Account
+                    </h2>
+
+                    <p style="color:${BRAND.textLight}; text-align:center;">
+                        Enter your new password
+                    </p>
+
+                    <form action="/auth/reset_password" method="post">
+
+                    <!-- NEW PASSWORD -->
+                    <div style="position:relative; margin:10px 0;">
+                        <input type="password" id="new_password" name="new_password"
+                            placeholder="New password"
+                            required
+                            style="
+                                width:100%;
+                                padding:12px;
+                                border:1px solid ${BRAND.border};
+                                border-radius:8px;
+                                padding-right:42px;
+                                box-sizing: border-box;
+                            ">
+
+                        <button type="button"
+                            onclick="togglePassword('new_password', this)"
+                            aria-label="Show password"
+                            style="
+                                position:absolute;
+                                right:10px;
+                                top:50%;
+                                transform:translateY(-50%);
+                                background:none;
+                                border:none;
+                                cursor:pointer;
+                                color:${BRAND.primary};
+                            ">
+
+                            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor"
+                                fill="none" stroke-width="1.8"
+                            >
+                                <path d="M1 12s4.5-7 11-7 11 7 11 7-4.5 7-11 7S1 12 1 12Z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- CONFIRM PASSWORD -->
+                    <div style="position:relative; margin:10px 0;">
+                        <input type="password" id="confirm_password" name="confirm_password"
+                            placeholder="Confirm password"
+                            required
+                            style="
+                                width:100%;
+                                padding:12px;
+                                border:1px solid ${BRAND.border};
+                                border-radius:8px;
+                                padding-right:42px;
+                                box-sizing: border-box;
+                            ">
+
+                        <button type="button"
+                            onclick="togglePassword('confirm_password', this)"
+                            aria-label="Show password"
+                            style="
+                                position:absolute;
+                                right:10px;
+                                top:50%;
+                                transform:translateY(-50%);
+                                background:none;
+                                border:none;
+                                cursor:pointer;
+                                color:${BRAND.primary};
+                            ">
+
+                            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="1.8">
+                                <path d="M1 12s4.5-7 11-7 11 7 11 7-4.5 7-11 7S1 12 1 12Z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <input type="hidden" name="resetPasswordCode" value="${resetPasswordCode}" />
+
+                    <button type="submit" style="
+                        width:100%;
+                        padding:12px;
+                        background:${BRAND.primary};
+                        color:white;
+                        border:none;
+                        border-radius:8px;
+                        font-weight:bold;
+                        cursor:pointer;
+                        margin-top:10px;
+                    ">
+                        Reset Password
+                    </button>
                     </form>
+                </div>
+
+                <script>
+                function togglePassword(inputId, button) {
+                    const input = document.getElementById(inputId);
+                    const svg = button.querySelector('svg');
+
+                    if (input.type === 'password') {
+                        input.type = 'text';
+                        button.setAttribute('aria-label', 'Hide password');
+
+                        svg.innerHTML =
+                            '<path d="M1 12s4.5-7 11-7 11 7 11 7-4.5 7-11 7S1 12 1 12Z"></path>' +
+                            '<path d="M2 2l20 20" stroke="currentColor" stroke-width="1.8"></path>';
+                        
+                    } else {
+                        input.type = 'password';
+                        button.setAttribute('aria-label', 'Show password');
+
+                        svg.innerHTML =
+                            '<path d="M1 12s4.5-7 11-7 11 7 11 7-4.5 7-11 7S1 12 1 12Z"></path>' +
+                            '<circle cx="12" cy="12" r="3"></circle>';
+                    }
+                }
+                </script>
+
                 </body>
-                </html>`
-            )
+                </html>
+            `)
         } catch (e: any) {
             if (e.name === 'JsonWebTokenError') {
                 // Handle general JWT errors
@@ -519,10 +685,10 @@ router.post("/reset_password", async (req: Request, res: Response) => {
     }
 
     // (Optional) check minimum length / complexity on the server side too
-    if (new_password.length < 11) {
+    if (new_password.length < 8) {
         return res
             .status(400)
-            .json({ status: "error", msg: "Password must be at least 11 characters" });
+            .json({ status: "error", msg: "Password must be at least 8 characters" });
     }
 
     try {
@@ -541,11 +707,99 @@ router.post("/reset_password", async (req: Request, res: Response) => {
         );
 
         // return a response which is a web page
-        return res.status(200).send(`</div>
-      <h1>Reset Password</h1>
-      <p>Your password has been reset successfully!!!</p>
-      <p>You can now login with your new password.</p>
-      </div>`);
+        return res.status(200).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>Password Reset Successful</title>
+            </head>
+
+            <body style="
+                margin:0;
+                padding:0;
+                font-family:Arial, sans-serif;
+                background:#F4F5FF;
+                display:flex;
+                justify-content:center;
+                align-items:center;
+                height:100vh;
+            ">
+
+            <div style="
+                width:100%;
+                max-width:480px;
+                background:#FFFFFF;
+                border:1px solid #E8E8F0;
+                border-radius:18px;
+                padding:40px;
+                text-align:center;
+                box-shadow:0 10px 30px rgba(0,0,0,0.08);
+            ">
+
+                <!-- Success Icon -->
+                <div style="
+                    width:80px;
+                    height:80px;
+                    background:#1aa803;
+                    border-radius:50%;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    margin:0 auto 20px auto;
+                ">
+                    <span style="color:white;font-size:40px;">✓</span>
+                </div>
+
+                <!-- Title -->
+                <h1 style="
+                    color:#1aa803;
+                    margin-bottom:10px;
+                    font-size:26px;
+                ">
+                    Password Reset Successful
+                </h1>
+
+                <!-- Message -->
+                <p style="
+                    color:#666666;
+                    font-size:16px;
+                    line-height:1.6;
+                    margin-bottom:30px;
+                ">
+                    Your password has been successfully updated.<br/>
+                    You can now log in to your account with your new password.
+                </p>
+
+                <!-- Button -->
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" style="
+                    display:inline-block;
+                    padding:14px 28px;
+                    background:#1aa803;
+                    color:#ffffff;
+                    text-decoration:none;
+                    border-radius:10px;
+                    font-weight:bold;
+                    font-size:15px;
+                ">
+                    Go to Login
+                </a>
+
+                <!-- Footer note -->
+                <p style="
+                    margin-top:25px;
+                    font-size:13px;
+                    color:#888888;
+                ">
+                    Farm Connect
+               </p>
+ 
+            </div>
+
+            </body>
+            </html>
+        `);
     } catch (e: any) {
         if (e.name === 'JsonWebTokenError') {
             // Handle general JWT errors
