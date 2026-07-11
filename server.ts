@@ -25,8 +25,8 @@ con.on('open', error => {
 import auth from './users/auth'
 app.use('/auth', auth)
 
-// import profile from './user_routes/profile'
-// app.use('/profile', profile)
+import profile from './users/profile'
+app.use('/profile', profile)
 
 // server
 const port = process.env.PORT || 1990
