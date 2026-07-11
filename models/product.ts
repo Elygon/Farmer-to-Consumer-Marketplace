@@ -1,4 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
+import { PRODUCE_CATEGORIES, ProduceCategory } from '../constants/user'
+import { ILocation } from './user'
 
 // Interface for Product Document
 export interface IProduct extends Document {
@@ -8,9 +10,9 @@ export interface IProduct extends Document {
     pricePerUnit: number
     quantityAvailable: number
     unit: string
-    location: string
-    //category: string
-    isAvaliable: boolean
+    location: ILocation
+    category: ProduceCategory
+    isAvailable: boolean
     images: string[]
     createdAt: Date
     updatedAt: Date
@@ -21,11 +23,19 @@ const productSchema = new Schema<IProduct>({
     farmerId: { type: Schema.Types.ObjectId, ref: 'User' },
     name: String,
     description: String,
+    category: { type: String, enum: PRODUCE_CATEGORIES },
     pricePerUnit: Number,
     quantityAvailable: Number,
-    unit: String, // e.g kg, basket, bag, etc.
-    location: String,
-    isAvaliable: { type: Boolean, default: true },
+    unit: {
+        type: String,
+        enum: ['kg', 'g', 'ton', 'bag', 'basket', 'crate', 'piece', 'dozen','litre']
+    },
+    location: {
+        address: String,
+        state: String,
+        lga: String
+    },
+    isAvailable: { type: Boolean, default: true },
     images: [{
         id: String,
         url: String

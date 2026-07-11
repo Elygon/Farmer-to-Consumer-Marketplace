@@ -8,7 +8,7 @@ interface IProfilePic {
 }
 
 // Interface for Location Document
-interface ILocation {
+export interface ILocation {
     address: string
     state: string
     lga: string
