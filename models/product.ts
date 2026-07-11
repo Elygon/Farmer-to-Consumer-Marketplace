@@ -13,7 +13,7 @@ export interface IProduct extends Document {
     location: ILocation
     category: ProduceCategory
     isAvailable: boolean
-    images: string[]
+    images: { id: string, url: string }[]
     createdAt: Date
     updatedAt: Date
 }
