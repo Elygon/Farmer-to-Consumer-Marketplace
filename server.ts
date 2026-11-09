@@ -8,6 +8,9 @@ dotenv.config()
 app.use(express.json())
 app.use(express.urlencoded({extended: true}))
 
+// redis connection
+import './config/redis'
+
 // database connection
 import mongoose from 'mongoose'
 mongoose.connect(process.env.mongo_uri as string)

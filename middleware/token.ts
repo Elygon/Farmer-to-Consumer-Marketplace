@@ -5,6 +5,7 @@ import jwt, { JwtPayload } from 'jsonwebtoken'
 
 // Import your database models (user)
 import User, { IUser } from '../models/user'
+import redis from '../config/redis'
 
 // Extend Express Request to include custom fields
 interface AuthRequest extends Request {
@@ -24,7 +25,7 @@ const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
       ? authHeader.substring(7)
       : req.header('x-auth-token')
 
-    // If there’s no token at all, deny access.
+    // If there's no token at all, deny access.
     if (!token) {
       return res.status(401).json({ status: 'error', msg: 'No token provided' })
     }
@@ -35,24 +36,43 @@ const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
       return res.status(500).json({ status: 'error', msg: 'JWT secret not configured' })
     }
 
+    // Check if token has been blacklisted (i.e. user logged out)
+    const isBlacklisted = await redis.get(`blacklist:token:${token}`)
+    if (isBlacklisted) {
+      return res.status(401).json({ status: 'error', msg: 'Token has been invalidated. Please log in again.' })
+    }
+
     // Verify the token using your secret key from the .env file
     // This decodes the token and gives access to the payload (e.g., the user's ID)
     const decoded = jwt.verify(token, secret) as JwtPayload & { _id: string }
 
-    // Find user in DB
+    // Check Redis cache for the user before hitting the DB
+    const cacheKey = `auth:user:${decoded._id}`
+    const cachedUser = await redis.get(cacheKey)
+
+    if (cachedUser) {
+      req.user = JSON.parse(cachedUser)
+      req.token = token
+      return next()
+    }
+
+    // Fall back to DB if not cached
     const user = await User.findById(decoded._id)
 
     if (!user) {
       return res.status(401).json({ status: 'error', msg: 'User not found' })
     }
 
+    // Cache user for 15 minutes
+    await redis.set(cacheKey, JSON.stringify(user), 'EX', 900)
+
     // Attach user to request
     req.token = token;
     req.user = user;
 
     next()
-    }  catch (error: any) {
-        console.error('Auth middleware error:', error)
+  } catch (error: any) {
+    console.error('Auth middleware error:', error)
     // If token is expired, handle it clearly
     if (error.name === 'TokenExpiredError')
       return res.status(401).json({ status: 'error', msg: 'Token expired' })

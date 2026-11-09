@@ -8,6 +8,8 @@ import { PRODUCE_CATEGORIES, ProduceCategory } from '../constants/user'
 import { ILocation } from '../models/user'
 import cloudinary from '../services/cloudinary'
 import multer from '../services/multer'
+import redis from '../config/redis'
+import crypto from 'crypto'
 
 
 // ======================== TYPES ========================
@@ -72,6 +74,12 @@ type UpdateProductBody = {
 router.post('/all', async(req: Request, res: Response) => {
     try {
         const { page = 1, limit = 10 } = req.body as ViewAllProductsBody
+        const cacheKey = `products:all:page:${page}:limit:${limit}`
+
+        // Check cache first
+        const cached = await redis.get(cacheKey)
+        if (cached) return res.status(200).send(JSON.parse(cached))
+
         const skip = (page - 1) * limit
 
         const totalProducts = await Product.countDocuments({ isAvailable: true })
@@ -79,9 +87,14 @@ router.post('/all', async(req: Request, res: Response) => {
         .populate('farmerId', 'fullname farmName phoneNo location profilePic').sort({ createdAt: -1 })
         .skip(skip).limit(limit).lean()
 
-        return res.status(200).send({ 
+        const response = { 
             status: 'ok', msg: 'success', totalProducts, totalPages: Math.ceil(totalProducts / limit), products
-        })
+        }
+
+        // Cache for 5 minutes
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', 300)
+
+        return res.status(200).send(response)
 
     } catch (error: any) {
         console.log(error)
@@ -99,6 +112,12 @@ router.post('/view', token, async (req: Request, res: Response) => {
     }
 
     try {
+        const cacheKey = `product:${productId}`
+
+        // Check cache first
+        const cached = await redis.get(cacheKey)
+        if (cached) return res.status(200).send(JSON.parse(cached))
+
         const product = await Product.findOne({ _id: productId, isAvailable: true })
         .populate('farmerId', 'fullname farmName phoneNo location profilePic').lean()
 
@@ -106,7 +125,12 @@ router.post('/view', token, async (req: Request, res: Response) => {
             return res.status(404).send({ status: 'error', msg: 'Product not found'})
         }
 
-        return res.status(200).send({ status: 'ok', msg: 'success', product})
+        const response = { status: 'ok', msg: 'success', product }
+
+        // Cache for 10 minutes
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', 600)
+
+        return res.status(200).send(response)
     } catch (error: any) {
         console.log(error)
         if (error.name === 'JsonWebTokenError') {
@@ -127,6 +151,11 @@ router.post('/search', async (req: Request, res: Response) => {
     try {
         const search = keyword.trim()
         const category = search.toLowerCase()
+        const cacheKey = `search:${category}`
+
+        // Check cache first
+        const cached = await redis.get(cacheKey)
+        if (cached) return res.status(200).send(JSON.parse(cached))
 
         const products = await Product.find({
             isAvailable: true,
@@ -139,7 +168,12 @@ router.post('/search', async (req: Request, res: Response) => {
             ]
         } as any).populate('farmerId', 'fullname farmName profilePic').sort({ createdAt: -1 }).lean()
 
-        return res.status(200).send({ status: 'ok', msg: 'success', count: products.length, products })
+        const response = { status: 'ok', msg: 'success', count: products.length, products }
+
+        // Cache for 2 minutes
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', 120)
+
+        return res.status(200).send(response)
     } catch (error: any) {
         console.log(error)
         
@@ -153,6 +187,14 @@ router.post('/filter', async (req: Request, res: Response) => {
     const { category, state, lga, minPrice, maxPrice, unit, isAvailable, sortBy, order } = req.body as FilterBody
     
     try {
+        // Build a stable hash of the filter params for the cache key
+        const filterHash = crypto.createHash('md5').update(JSON.stringify(req.body)).digest('hex')
+        const cacheKey = `filter:${filterHash}`
+
+        // Check cache first
+        const cached = await redis.get(cacheKey)
+        if (cached) return res.status(200).send(JSON.parse(cached))
+
         const query: any = {}
 
         // Only available products by default
@@ -211,7 +253,12 @@ router.post('/filter', async (req: Request, res: Response) => {
         const products = await Product.find(query)
         .populate('farmerId', 'fullname farmName phoneNo profilePic location').sort(sort).lean()
 
-        return res.status(200).send({ status: 'ok', msg: 'success', count: products.length, products})
+        const response = { status: 'ok', msg: 'success', count: products.length, products }
+
+        // Cache for 3 minutes
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', 180)
+
+        return res.status(200).send(response)
     } catch (error: any) {
         console.log(error)
 
@@ -228,6 +275,12 @@ router.post('/farmer', token, async (req: Request, res: Response) => {
     }
 
     try {
+        const cacheKey = `farmer:products:${farmerId}`
+
+        // Check cache first
+        const cached = await redis.get(cacheKey)
+        if (cached) return res.status(200).send(JSON.parse(cached))
+
         // Ensure the farmer exists
         const farmer = await User.findOne({ _id: farmerId, role: 'farmer', isActive: true, isVerified: true })
         .select('fullname farmName profilePic location produceCategories').lean()
@@ -239,7 +292,12 @@ router.post('/farmer', token, async (req: Request, res: Response) => {
         // Fetch the farmer's available products
         const products = await Product.find({ farmerId, isAvailable: true}).sort({ createdAt: -1}).lean()
 
-        return res.status(200).send({ status: 'ok', msg: 'success', farmer, count: products.length, products })
+        const response = { status: 'ok', msg: 'success', farmer, count: products.length, products }
+
+        // Cache for 5 minutes
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', 300)
+
+        return res.status(200).send(response)
     } catch (error: any) {
         console.log(error)
 
@@ -317,6 +375,11 @@ router.post('/add', token, multer.array('images', 5), async(req: Request, res: R
 
         await product.save()
  
+        // Bust farmer's product list cache and all-products pages
+        await redis.del(`farmer:products:${farmer._id}`)
+        const allKeys = await redis.keys('products:all:*')
+        if (allKeys.length) await redis.del(...allKeys)
+
         return res.status(201).send({ status: 'ok', msg: 'success', product})
     } catch (error: any) {
         console.log(error)
@@ -446,6 +509,12 @@ router.post('/update', token, multer.array('images', 5), async (req: Request, re
 
         await product.save()
 
+        // Bust the specific product cache, farmer's list, and all-products pages
+        await redis.del(`product:${productId}`)
+        await redis.del(`farmer:products:${farmerId}`)
+        const allKeys = await redis.keys('products:all:*')
+        if (allKeys.length) await redis.del(...allKeys)
+
         return res.status(200).send({ status: 'ok', msg: 'success', product })
     } catch (error: any) {
         console.log(error)
@@ -490,6 +559,14 @@ router.post('/delete', token, async (req: Request, res: Response) => {
 
         await Product.findByIdAndDelete(productId)
 
+        // Bust the specific product cache, farmer's list, search, and all-products pages
+        await redis.del(`product:${productId}`)
+        await redis.del(`farmer:products:${product.farmerId}`)
+        const allKeys = await redis.keys('products:all:*')
+        if (allKeys.length) await redis.del(...allKeys)
+        const searchKeys = await redis.keys('search:*')
+        if (searchKeys.length) await redis.del(...searchKeys)
+
         return res.status(200).send({ status: 'ok', msg: 'success' })
 
     } catch (error: any) {
@@ -528,6 +605,12 @@ router.post('/toggle-availability', token, async (req: Request, res: Response) =
         product.isAvailable = !product.isAvailable
 
         await product.save()
+
+        // Bust the specific product cache, farmer's list, and all-products pages
+        await redis.del(`product:${productId}`)
+        await redis.del(`farmer:products:${product.farmerId}`)
+        const allKeys = await redis.keys('products:all:*')
+        if (allKeys.length) await redis.del(...allKeys)
 
         return res.status(200).send({
             status: 'ok', msg: product.isAvailable ? 'Product is now available' : 'Product is now unavailable',

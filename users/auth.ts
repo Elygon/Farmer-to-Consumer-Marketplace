@@ -9,6 +9,7 @@ import { ProduceCategory } from '../constants/user'
 import token from '../middleware/token'
 import { sendVerificationEmail, sendPasswordReset } from '../services/nodemailer'
 import { BRAND } from '../services/emailTemplate'
+import redis from '../config/redis'
 
 
 // ======================== TYPES ========================
@@ -382,10 +383,16 @@ router.post('/login', async (req: Request, res: Response) => {
 //endpoint to Logout
 router.post('/logout', token, async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user._id
+        const userId = (req as any).user._id.toString()
+        const jwtToken = (req as any).token
 
-        // Set user offline
-        //await User.findByIdAndUpdate(userId, { is_online: false })
+        // Blacklist the JWT so it can't be reused (expires after 24h, same as token lifetime)
+        if (jwtToken) {
+            await redis.set(`blacklist:token:${jwtToken}`, '1', 'EX', 86400)
+        }
+
+        // Bust the cached user so the middleware re-fetches on next login
+        await redis.del(`auth:user:${userId}`)
 
         return res.status(200).send({ status: 'ok', msg: 'success' })
 
@@ -436,6 +443,9 @@ router.post('/change_password', token, async (req: Request, res: Response) => {
         const updatePassword = await bcrypt.hash(confirm_new_password, 10)
         await User.findByIdAndUpdate((req as any).user._id, { password: updatePassword })
 
+        // Bust the cached user so the middleware re-fetches fresh data
+        await redis.del(`auth:user:${(req as any).user._id}`)
+
         return res.status(200).send({ status: 'ok', msg: 'success' })
     } catch (error: any) {
         if (error.name === 'JsonWebTokenError') {
@@ -463,6 +473,16 @@ router.post('/forgot_password', async (req: Request, res: Response) => {
             return res.status(400).send({ status: 'error', msg: 'No account found with the provided email' });
         }
 
+        // Rate limit: block repeat requests within 10 minutes
+        const rateLimitKey = `reset_requested:${email}`
+        const alreadyRequested = await redis.get(rateLimitKey)
+        if (alreadyRequested) {
+            return res.status(429).send({
+                status: 'error',
+                msg: 'A reset link was recently sent. Please check your email or wait 10 minutes.'
+            })
+        }
+
         const secret = process.env.jwt_secret!
 
         // Create reset token (expires in 10 min)
@@ -471,6 +491,9 @@ router.post('/forgot_password', async (req: Request, res: Response) => {
         // Send email
         const resetLink = `${process.env.BASE_URL}/auth/reset_password/${resetToken}`
         await sendPasswordReset(user.email, user.fullname, resetLink)
+
+        // Set rate limit flag (expires in 10 min, same as the token)
+        await redis.set(rateLimitKey, '1', 'EX', 600)
 
         return res.status(200).send({ status: 'ok', msg: 'Password reset link sent. Please check your email or phone.' })
 
@@ -828,12 +851,22 @@ router.post("/reset_password", async (req: Request, res: Response) => {
 //endpoint to delete account
 router.post('/delete', token, async (req: Request, res: Response) => {
     try {
+        const userId = (req as any).user._id.toString()
+        const jwtToken = (req as any).token
+
         //Find the user and delete the account
-        const deleted = await User.findByIdAndDelete((req as any).user._id)
+        const deleted = await User.findByIdAndDelete(userId)
 
         //Check if the user exists and was deleted
         if (!deleted)
             return res.status(400).send({ status: 'error', msg: 'No user Found' })
+
+        // Bust cached user and blacklist the token
+        await redis.del(`auth:user:${userId}`)
+        await redis.del(`profile:${userId}`)
+        if (jwtToken) {
+            await redis.set(`blacklist:token:${jwtToken}`, '1', 'EX', 86400)
+        }
 
         return res.status(200).send({ status: 'ok', msg: 'success' })
 

@@ -6,6 +6,7 @@ import User from '../models/user'
 import cloudinary from '../services/cloudinary'
 import multer from '../services/multer'
 import { ProduceCategory } from '../constants/user'
+import redis from '../config/redis'
 
 
 // ======================== TYPES ========================
@@ -26,13 +27,25 @@ type UpdateProfileBody = {
 // ======================== VIEW PROFILE ========================
 router.post('/view', token, async (req: Request, res: Response) => {
     try {
-        const user = await User.findById((req as any).user._id).select('-password').lean()
+        const userId = (req as any).user._id.toString()
+        const cacheKey = `profile:${userId}`
+
+        // Check cache first
+        const cached = await redis.get(cacheKey)
+        if (cached) return res.status(200).send(JSON.parse(cached))
+
+        const user = await User.findById(userId).select('-password').lean()
 
         if (!user) {
             return res.status(404).send({ status: 'error', msg: 'User not found' })
         }
 
-        return res.status(200).send({ status: 'ok', msg: 'success', user })
+        const response = { status: 'ok', msg: 'success', user }
+
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', 900)
+
+        return res.status(200).send(response)
     } catch (error: any) {
         console.log(error)
 
@@ -52,7 +65,8 @@ router.post('/update', multer.single('profilePic'), token, async (req: Request, 
             fullname, email, phoneNo, location, farmName, produceCategories
         } = req.body as UpdateProfileBody
 
-        const user = await User.findById((req as any).user._id)
+        const userId = (req as any).user._id.toString()
+        const user = await User.findById(userId)
 
         if (!user) {
             return res.status(404).send({ status: 'error', msg: 'User not found' })
@@ -100,6 +114,10 @@ router.post('/update', multer.single('profilePic'), token, async (req: Request, 
         }
 
         await user.save()
+
+        // Bust profile cache and auth user cache so middleware re-fetches fresh data
+        await redis.del(`profile:${userId}`)
+        await redis.del(`auth:user:${userId}`)
 
         return res.status(200).send({ status: 'ok', msg: 'success', user})
     } catch (error: any) {
